@@ -1,6 +1,8 @@
 #include <iostream>
 #include <mpi.h>
 #include "Tools.h"
+#include <fstream>
+#include <map>
 using namespace std;
 
 enum class TaskType{Map, Reduce,Close};
@@ -12,6 +14,9 @@ void MasterReduce(int n);
 void MasterEnd(int n);
 void WorkerHandle(int rank);
 bool AreAllWorkersFree(WorkerState* states, int n);
+
+
+void MapWorkerHandler(string file);
 int main(int argc, char *argv[]) {
     int rank;
     int n;
@@ -32,6 +37,9 @@ int main(int argc, char *argv[]) {
     Tools::tempFolderName=string(argv[2])+"/temp";
 
     if(rank==0){
+        system(("rm -r "+Tools::outputFolderName).c_str());
+        Tools::CreateFolder(Tools::outputFolderName);
+        Tools::CreateFolder(Tools::tempFolderName);
         MasterMap(n);
         MasterReduce(n);
         MasterEnd(n);
@@ -68,6 +76,7 @@ void MasterMap(int n){
                 MPI_Irecv(&(dummyBuffer), 1, MPI_INT, i, MPI_ANY_TAG, MPI_COMM_WORLD, &(workerRequests[i]));
                 workerState[i]=WorkerState::Working;
                 currentTask++;
+                //taskList.clear();
             }
         }
         int flag;
@@ -109,9 +118,11 @@ void WorkerHandle(int rank){
     int message=0;
     MPI_Request sendReq;
     char buffer[255];
-
+    string stringBuffer;
     while(running){
         MPI_Recv(buffer, 255, MPI_CHAR, 0, MPI_ANY_TAG, MPI_COMM_WORLD, &sts);
+        stringBuffer=string(buffer);
+
         switch((TaskType)sts.MPI_TAG){
             case TaskType::Close:
                 running=false;
@@ -120,6 +131,7 @@ void WorkerHandle(int rank){
 
             case TaskType::Map:
                 cout<<"Worker ["<<rank<<"] am primit - "<<buffer<<" - pentru operatia Map"<<endl;
+                MapWorkerHandler(buffer);
                 MPI_Send(&message, 1, MPI_INT, 0, (int)WorkerState::Done, MPI_COMM_WORLD);
                 break;
 
@@ -133,6 +145,51 @@ void WorkerHandle(int rank){
                 exit(EXIT_FAILURE);
         }
     }
+}
+
+void MapWorkerHandler(string file){
+    map<string,int> frequency;
+    char word[255];
+    char c;
+    int poz=0;
+    string sWord;
+    ifstream workerCurrentFile(Tools::inputFolderName+"/"+file);
+    if(!workerCurrentFile.fail()){
+        while (workerCurrentFile.get(c))
+        {
+            if ((c >= '0' && c <= '9') ||(c >= 'a' && c <= 'z') ||(c >= 'A' && c <= 'Z')) {
+                word[poz++] = c;
+            }
+            else
+            {
+                if (poz != 0)
+                {
+                    word[poz] = '\0';
+                    poz=0;
+                    sWord=string(word);
+                    //Add to map if not exists/ increment value if exists
+                    auto it = frequency.find(string(word));
+                    if(it != frequency.end())
+                    {
+                        //element found
+                        it->second=it->second+1;
+                    }else{
+                        //element not found
+                        frequency.insert(pair<string,int>(sWord,1));
+                    };
+                }
+            }
+        }
+        for(auto iter = frequency.begin(); iter != frequency.end(); ++iter)
+        {
+            string cuvant =  iter->first;
+            string wordFolder=Tools::tempFolderName+"/"+cuvant;
+            Tools::CreateFolder(wordFolder);
+            ofstream outfile (wordFolder+"/"+file);
+            outfile<<iter->second;
+        }
+    }
+
 }
 
 
