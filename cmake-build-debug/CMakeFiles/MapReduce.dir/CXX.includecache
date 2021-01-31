@@ -1,0 +1,32 @@
+#IncludeRegexLine: ^[ 	]*[#%][ 	]*(include|import)[ 	]*[<"]([^">]+)([">])
+
+#IncludeRegexScan: ^.*$
+
+#IncludeRegexComplain: ^$
+
+#IncludeRegexTransform: 
+
+/home/alex/Facultate/ALPD/Proiect/MapReduce.cpp
+iostream
+-
+mpi.h
+-
+Tools.h
+/home/alex/Facultate/ALPD/Proiect/Tools.h
+
+/home/alex/Facultate/ALPD/Proiect/Tools.h
+vector
+-
+string
+-
+string.h
+-
+dirent.h
+-
+sys/stat.h
+-
+mpi.h
+-
+iostream
+-
+

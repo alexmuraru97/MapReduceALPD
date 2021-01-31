@@ -1,0 +1,1 @@
+/home/alex/.openmpi/bin/mpicxx   -fopenmp -g    CMakeFiles/InmultireMatrice.dir/MapReduce.cpp.o  -o InmultireMatrice 

@@ -1,0 +1,1 @@
+/home/alex/.openmpi/bin/mpicxx   -fopenmp -g    CMakeFiles/MapReduce.dir/MapReduce.cpp.o CMakeFiles/MapReduce.dir/Tools.cpp.o  -o MapReduce 
