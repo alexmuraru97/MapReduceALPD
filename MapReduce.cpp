@@ -3,20 +3,21 @@
 #include "Tools.h"
 #include <fstream>
 #include <map>
+#include <time.h>
 using namespace std;
 
 enum class TaskType{Map, Reduce,Close};
 
 enum class WorkerState {Free, Working, Done};
 
-void MasterMap(int n);
-void MasterReduce(int n);
+void MasterTask(int n,TaskType job);
 void MasterEnd(int n);
 void WorkerHandle(int rank);
 bool AreAllWorkersFree(WorkerState* states, int n);
 
 
 void MapWorkerHandler(string file);
+void ReduceWorkerHandler(string folder,int rank);
 int main(int argc, char *argv[]) {
     int rank;
     int n;
@@ -37,11 +38,23 @@ int main(int argc, char *argv[]) {
     Tools::tempFolderName=string(argv[2])+"/temp";
 
     if(rank==0){
-        system(("rm -r "+Tools::outputFolderName).c_str());
+        double c1=clock();
+        system(("rm -rf "+Tools::outputFolderName).c_str());
         Tools::CreateFolder(Tools::outputFolderName);
         Tools::CreateFolder(Tools::tempFolderName);
-        MasterMap(n);
-        MasterReduce(n);
+        double diffticks=clock()-c1;
+        cout<<"Folders cleared and created in "<<(diffticks)/(CLOCKS_PER_SEC/1000)<<"ms"<<endl;
+
+        c1=clock();
+        MasterTask(n,TaskType::Map);
+        diffticks=clock()-c1;
+        cout<<"Map stage finished in "<<(diffticks)/(CLOCKS_PER_SEC/1000)<<"ms"<<endl;
+
+        c1=clock();
+        MasterTask(n,TaskType::Reduce);
+        diffticks=clock()-c1;
+        cout<<"Reduce stage finished in "<<(diffticks)/(CLOCKS_PER_SEC/1000)<<"ms"<<endl;
+
         MasterEnd(n);
     }else{
         WorkerHandle(rank);
@@ -52,12 +65,23 @@ int main(int argc, char *argv[]) {
     return 0;
 }
 
-void MasterMap(int n){
+void MasterTask(int n,TaskType job){
     //MAP
     cout<<"[Master] Incep executia Map"<<endl;
     MPI_Request sendreq;
     int dummyBuffer;
-    vector<string> taskList=Tools::ReadFolderContents(Tools::inputFolderName);
+    vector<string> taskList;
+    switch(job){
+        case TaskType::Map:
+            taskList=Tools::ReadFolderContents(Tools::inputFolderName);
+            cout<<taskList.size()<<" for map phase"<<endl;
+            break;
+        case TaskType::Reduce:
+            taskList=Tools::ReadFolderContents(Tools::tempFolderName);
+            cout<<taskList.size()<<" for reduce phase"<<endl;
+            break;
+    }
+
     //Vector de stari
     WorkerState* workerState=new WorkerState[n];
     for(int i=0;i<n;++i){
@@ -71,7 +95,7 @@ void MasterMap(int n){
     while(currentTask<taskList.size()||(!AreAllWorkersFree(workerState, n))){
         for(int i=1;i<n;++i){
             if(workerState[i]==WorkerState::Free&&currentTask<taskList.size()){
-                MPI_Isend(taskList.at(currentTask).c_str(),taskList.at(currentTask).size()+1,MPI_CHAR,i,(int)TaskType::Map,MPI_COMM_WORLD,&sendreq);
+                MPI_Isend(taskList.at(currentTask).c_str(),taskList.at(currentTask).size()+1,MPI_CHAR,i,(int)job,MPI_COMM_WORLD,&sendreq);
                 MPI_Request_free(&sendreq);
                 MPI_Irecv(&(dummyBuffer), 1, MPI_INT, i, MPI_ANY_TAG, MPI_COMM_WORLD, &(workerRequests[i]));
                 workerState[i]=WorkerState::Working;
@@ -92,12 +116,9 @@ void MasterMap(int n){
             }
         }
     }
-}
 
-void MasterReduce(int n){
-
-
-
+    free(workerState);
+    free(workerRequests);
 }
 
 
@@ -136,7 +157,8 @@ void WorkerHandle(int rank){
                 break;
 
             case TaskType::Reduce:
-
+                ReduceWorkerHandler(buffer,rank);
+                MPI_Send(&message, 1, MPI_INT, 0, (int)WorkerState::Done, MPI_COMM_WORLD);
                 break;
 
             default:
@@ -190,6 +212,28 @@ void MapWorkerHandler(string file){
         }
     }
 
+}
+
+void ReduceWorkerHandler(string folder,int rank){
+    std::ofstream ofs;
+    string outFileName=Tools::outputFolderName+"/"+"worker"+to_string(rank)+".json";
+    ofs.open (outFileName, std::ofstream::out | std::ofstream::app);
+    vector<string> v=Tools::ReadFolderContents(Tools::tempFolderName+"/"+folder);
+    std::string buff;
+
+    ofs<<"{ word:\""<<folder<<"\",documents:[";
+    int index=0;
+    for(string file:v){
+        ifstream workerCurrentFile(Tools::tempFolderName+"/"+folder+"/"+file);
+        getline( workerCurrentFile, buff );
+        ofs<<"{doc:\""+file+"\",freq:"+buff+"}";
+        if(index<v.size()-1){
+            ofs<<",";
+            index++;
+        }
+        //cout<<folder<<" "<<file<<" "<<buff<<endl;
+    }
+    ofs<<"]}\n";
 }
 
 
