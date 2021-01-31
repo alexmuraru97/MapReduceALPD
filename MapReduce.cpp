@@ -4,6 +4,8 @@
 #include <fstream>
 #include <map>
 #include <time.h>
+#include <regex>
+
 using namespace std;
 
 enum class TaskType{Map, Reduce,Close};
@@ -18,6 +20,8 @@ bool AreAllWorkersFree(WorkerState* states, int n);
 
 void MapWorkerHandler(string file);
 void ReduceWorkerHandler(string folder,int rank);
+
+void ConcatResults(int n);
 int main(int argc, char *argv[]) {
     int rank;
     int n;
@@ -39,22 +43,33 @@ int main(int argc, char *argv[]) {
 
     if(rank==0){
         double c1=clock();
+        double ms=0;
         system(("rm -rf "+Tools::outputFolderName).c_str());
         Tools::CreateFolder(Tools::outputFolderName);
         Tools::CreateFolder(Tools::tempFolderName);
         double diffticks=clock()-c1;
-        cout<<"Folders cleared and created in "<<(diffticks)/(CLOCKS_PER_SEC/1000)<<"ms"<<endl;
+        cout<<"[Master] Folders cleared and created in "<<(diffticks)/(CLOCKS_PER_SEC/1000)<<"ms"<<endl;
+        ms=(diffticks)/(CLOCKS_PER_SEC/1000);
 
         c1=clock();
         MasterTask(n,TaskType::Map);
         diffticks=clock()-c1;
-        cout<<"Map stage finished in "<<(diffticks)/(CLOCKS_PER_SEC/1000)<<"ms"<<endl;
+        cout<<"[Master] Map stage finished in "<<(diffticks)/(CLOCKS_PER_SEC/1000)<<"ms"<<endl;
+        ms+=(diffticks)/(CLOCKS_PER_SEC/1000);
 
         c1=clock();
         MasterTask(n,TaskType::Reduce);
         diffticks=clock()-c1;
-        cout<<"Reduce stage finished in "<<(diffticks)/(CLOCKS_PER_SEC/1000)<<"ms"<<endl;
+        cout<<"[Master] Reduce stage finished in "<<(diffticks)/(CLOCKS_PER_SEC/1000)<<"ms"<<endl;
+        ms+=(diffticks)/(CLOCKS_PER_SEC/1000);
 
+        c1=clock();
+        ConcatResults(n);
+        diffticks=clock()-c1;
+        cout<<"[Master] Result concatenation finished in "<<(diffticks)/(CLOCKS_PER_SEC/1000)<<"ms"<<endl;
+
+        ms+=(diffticks)/(CLOCKS_PER_SEC/1000);
+        cout<<"[Master] Total run time "<<ms<<"ms"<<endl;
         MasterEnd(n);
     }else{
         WorkerHandle(rank);
@@ -67,18 +82,19 @@ int main(int argc, char *argv[]) {
 
 void MasterTask(int n,TaskType job){
     //MAP
-    cout<<"[Master] Incep executia Map"<<endl;
     MPI_Request sendreq;
     int dummyBuffer;
     vector<string> taskList;
     switch(job){
         case TaskType::Map:
+            cout<<"[Master] starting Map phase"<<endl;
             taskList=Tools::ReadFolderContents(Tools::inputFolderName);
-            cout<<taskList.size()<<" for map phase"<<endl;
+            cout<<"[Master] "<<taskList.size()<<" files found for map phase"<<endl;
             break;
         case TaskType::Reduce:
+            cout<<"[Master] starting Reduce phase"<<endl;
             taskList=Tools::ReadFolderContents(Tools::tempFolderName);
-            cout<<taskList.size()<<" for reduce phase"<<endl;
+            cout<<"[Master] "<<taskList.size()<<" words found for reduce phase"<<endl;
             break;
     }
 
@@ -147,11 +163,9 @@ void WorkerHandle(int rank){
         switch((TaskType)sts.MPI_TAG){
             case TaskType::Close:
                 running=false;
-                cout<<"Worker ["<<rank<<"] executie incheiata cu succes"<<endl;
                 break;
 
             case TaskType::Map:
-                cout<<"Worker ["<<rank<<"] am primit - "<<buffer<<" - pentru operatia Map"<<endl;
                 MapWorkerHandler(buffer);
                 MPI_Send(&message, 1, MPI_INT, 0, (int)WorkerState::Done, MPI_COMM_WORLD);
                 break;
@@ -216,22 +230,21 @@ void MapWorkerHandler(string file){
 
 void ReduceWorkerHandler(string folder,int rank){
     std::ofstream ofs;
-    string outFileName=Tools::outputFolderName+"/"+"worker"+to_string(rank)+".json";
+    string outFileName=Tools::outputFolderName+"/"+"worker_"+to_string(rank)+".json";
     ofs.open (outFileName, std::ofstream::out | std::ofstream::app);
     vector<string> v=Tools::ReadFolderContents(Tools::tempFolderName+"/"+folder);
     std::string buff;
 
-    ofs<<"{ word:\""<<folder<<"\",documents:[";
+    ofs<<"{ \"word\":\""<<folder<<"\",\"documents\":[";
     int index=0;
     for(string file:v){
         ifstream workerCurrentFile(Tools::tempFolderName+"/"+folder+"/"+file);
         getline( workerCurrentFile, buff );
-        ofs<<"{doc:\""+file+"\",freq:"+buff+"}";
+        ofs<<"{\"doc\":\""+file+"\",\"freq\":"+buff+"}";
         if(index<v.size()-1){
             ofs<<",";
             index++;
         }
-        //cout<<folder<<" "<<file<<" "<<buff<<endl;
     }
     ofs<<"]}\n";
 }
@@ -244,4 +257,39 @@ bool AreAllWorkersFree(WorkerState* states, int n){
         }
     }
     return true;
+}
+void ConcatResults(int n){
+    vector<string> v=Tools::ReadFolderContents(Tools::outputFolderName);
+    vector<string> files;
+    regex workerFileRegex ("worker_([0-9])+.json");
+    for(string s:v){
+        if(regex_match (s,workerFileRegex)){
+            files.push_back(s);
+        }
+    }
+
+    std::ofstream ofs;
+    string outFileName=Tools::outputFolderName+"/output.json";
+    ofs.open (outFileName, std::ofstream::out);
+    ofs<<"{ \"inverseIndexData\":[";
+    string buff;
+    bool first=true;
+    string aux="";
+    int idx=0;
+    for(string s:files) {
+        ifstream workerCurrentFile(Tools::outputFolderName+"/"+s);
+        while (getline( workerCurrentFile, buff ))
+        {
+            aux+=buff+",";
+        }
+        if(idx==files.size()-1){
+            aux.pop_back();
+        }
+        ofs<<aux;
+        aux="";
+        idx++;
+    }
+
+
+    ofs<<"]}";
 }
